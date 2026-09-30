@@ -48,6 +48,7 @@ type Authorizer struct {
 	admins map[string]bool
 	source Source
 
+	load  sync.Mutex
 	mu    sync.RWMutex
 	gen   uint64
 	cache *store.Snapshot
@@ -119,10 +120,16 @@ func (a *Authorizer) Invalidate() {
 	a.mu.Unlock()
 }
 
+// snapshot returns the cached snapshot, loading it when there is none. Loads
+// are serialized so a burst of decisions after Invalidate reads the source
+// once instead of once per decision.
 func (a *Authorizer) snapshot(ctx context.Context) (*store.Snapshot, error) {
-	a.mu.RLock()
-	snap, gen := a.cache, a.gen
-	a.mu.RUnlock()
+	if snap, _ := a.cached(); snap != nil {
+		return snap, nil
+	}
+	a.load.Lock()
+	defer a.load.Unlock()
+	snap, gen := a.cached()
 	if snap != nil {
 		return snap, nil
 	}
@@ -136,4 +143,10 @@ func (a *Authorizer) snapshot(ctx context.Context) (*store.Snapshot, error) {
 	}
 	a.mu.Unlock()
 	return &loaded, nil
+}
+
+func (a *Authorizer) cached() (*store.Snapshot, uint64) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.cache, a.gen
 }

@@ -262,12 +262,18 @@ func (s *Store) Grant(ctx context.Context, email string, appID int64) error {
 		if err := tx.QueryRowContext(ctx, `SELECT host FROM apps WHERE id = ?`, appID).Scan(&host); err != nil {
 			return notFound(err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO grants (user_email, app_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, email, appID); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx, `DELETE FROM access_requests WHERE email = ? AND host = ?`, email, host)
-		return err
+		return grantInTx(ctx, tx, email, appID, host)
 	})
+}
+
+// grantInTx inserts the grant of appID, served at host, to email and drops
+// the matching access request.
+func grantInTx(ctx context.Context, tx *sql.Tx, email string, appID int64, host string) error {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO grants (user_email, app_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, email, appID); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `DELETE FROM access_requests WHERE email = ? AND host = ?`, email, host)
+	return err
 }
 
 // Revoke takes an app away from a user. Revoking a grant that does not exist
@@ -376,11 +382,7 @@ func (s *Store) ApproveRequest(ctx context.Context, email, host string, now time
 		if _, err := tx.ExecContext(ctx, `INSERT INTO users (email, name, disabled, created_at) VALUES (?, '', 0, ?) ON CONFLICT (email) DO NOTHING`, email, unix(now)); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO grants (user_email, app_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, email, appID); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx, `DELETE FROM access_requests WHERE email = ? AND host = ?`, email, host)
-		return err
+		return grantInTx(ctx, tx, email, appID, host)
 	})
 }
 

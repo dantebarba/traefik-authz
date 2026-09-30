@@ -53,6 +53,19 @@ func TestUsesMiddleware(t *testing.T) {
 	}
 }
 
+func TestAppsFromLabelsIgnoresKeyCase(t *testing.T) {
+	labels := map[string]string{
+		"Traefik.HTTP.Routers.Mixed.Rule":        "Host(`mixed.example.com`)",
+		"traefik.http.routers.Mixed.Middlewares": "traefik-authz",
+		"Traefik-Authz.Name":                     "Mixed",
+	}
+	got := AppsFromLabels(labels, "traefik-authz")
+	want := []store.App{{Host: "mixed.example.com", Router: "Mixed", Name: "Mixed"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("apps = %+v\nwant %+v", got, want)
+	}
+}
+
 func TestAppsFromLabels(t *testing.T) {
 	labels := map[string]string{
 		"traefik.enable":                                             "true",

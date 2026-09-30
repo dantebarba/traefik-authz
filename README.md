@@ -76,7 +76,6 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.middlewares.traefik-authz.forwardauth.address=http://traefik-authz:8080/check
-      - traefik.http.middlewares.traefik-authz.forwardauth.trustForwardHeader=true
       - traefik.http.routers.traefik-authz.rule=Host(`authz.example.com`)
       - traefik.http.routers.traefik-authz.entrypoints=websecure
       - traefik.http.routers.traefik-authz.tls.certresolver=myresolver
@@ -100,11 +99,15 @@ networks:
     external: true
 ```
 
-Three things in there matter:
+Four things in there matter:
 
 - **`authResponseHeaders=X-Forwarded-User` on the login middleware.** It makes Traefik
   overwrite the header with the signed-in user before traefik-authz sees it. Without it, a
   client could send its own `X-Forwarded-User` and be believed.
+- **No `trustForwardHeader` on the `traefik-authz` middleware.** traefik-authz decides by
+  `X-Forwarded-Host`; left untrusted, Traefik sets it to the host actually routed. Trusted, it
+  passes on whatever arrived, so behind an entrypoint that trusts forwarded headers a user
+  granted one app could reach another by sending that app's host.
 - **The panel router uses the login only**, not `traefik-authz`: the panel checks
   `ADMIN_EMAILS` itself and answers everyone else with a 403.
 - **Every router behind the login must also list `traefik-authz`.** Once the login stops

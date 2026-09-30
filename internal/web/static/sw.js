@@ -8,13 +8,12 @@
  * shell for navigations — when offline.
  */
 
-const CACHE = "traefik-authz-v1";
+const CACHE = "traefik-authz-v2";
 
 const SCOPE_PATH = new URL("./", self.location).pathname;
 
 const SHELL_ASSETS = [
   "./",
-  "index.html",
   "styles.css",
   "app.js",
   "manifest.webmanifest",
@@ -51,7 +50,7 @@ async function networkFirst(request) {
     const cached = await cache.match(request, { ignoreSearch: true });
     if (cached) return cached;
     if (request.mode === "navigate") {
-      const fallback = await cache.match("index.html");
+      const fallback = await cache.match("./");
       if (fallback) return fallback;
     }
     throw error;

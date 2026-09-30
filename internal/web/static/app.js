@@ -194,7 +194,14 @@ function adder() {
   const form = h("form", { class: "adder" }, email, name, submit);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    act(submit, () => api("POST", "users", { email: email.value, name: name.value }), `${email.value.trim().toLowerCase()} added`);
+    act(
+      submit,
+      async () => {
+        await api("POST", "users", { email: email.value, name: name.value });
+        form.reset();
+      },
+      `${email.value.trim().toLowerCase()} added`
+    );
   });
   return form;
 }
@@ -209,6 +216,8 @@ function appCard(a) {
   );
 }
 
+const adderForm = adder();
+
 function render() {
   const admins = h("p", { class: "project__note" }, "Admins reach every app and this panel: ", state.admins.map((a, i) => [i ? ", " : "", h("code", {}, a)]));
   app.replaceChildren(
@@ -218,7 +227,7 @@ function render() {
       state.requests.length,
       state.requests.length ? h("div", { class: "grid" }, state.requests.map(requestCard)) : empty("No pending requests", "Denied visits to a known app show up here.")
     ),
-    section("users", "Users", state.users.length, admins, adder(), state.users.length ? h("div", { class: "grid" }, state.users.map(userCard)) : empty("No users yet", "Add one above, or approve a request.")),
+    section("users", "Users", state.users.length, admins, adderForm, state.users.length ? h("div", { class: "grid" }, state.users.map(userCard)) : empty("No users yet", "Add one above, or approve a request.")),
     section(
       "apps",
       "Apps",

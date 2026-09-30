@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -118,18 +119,23 @@ func run(log *slog.Logger) error {
 	return nil
 }
 
+// healthcheck asks the local server for /healthz at LISTEN_ADDR, through the
+// loopback address when the server listens on every interface.
 func healthcheck() int {
-	addr := os.Getenv("LISTEN_ADDR")
+	addr := strings.TrimSpace(os.Getenv("LISTEN_ADDR"))
 	if addr == "" {
 		addr = ":8080"
 	}
-	_, port, err := net.SplitHostPort(addr)
+	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "healthcheck: LISTEN_ADDR is not host:port")
 		return 1
 	}
+	if ip := net.ParseIP(host); host == "" || ip != nil && ip.IsUnspecified() {
+		host = "127.0.0.1"
+	}
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://" + net.JoinHostPort("127.0.0.1", port) + "/healthz")
+	resp, err := client.Get("http://" + net.JoinHostPort(host, port) + "/healthz")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "healthcheck:", err)
 		return 1

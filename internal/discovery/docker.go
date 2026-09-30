@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
+
+const listTimeout = 30 * time.Second
 
 // Container is the part of a running Docker container that discovery reads.
 type Container struct {
@@ -46,8 +49,11 @@ func NewDocker(dockerHost string) (*Docker, error) {
 	}
 }
 
-// Containers lists the running containers.
+// Containers lists the running containers, giving up after listTimeout so a
+// stalled engine or socket proxy cannot hold up discovery.
 func (d *Docker) Containers(ctx context.Context) ([]Container, error) {
+	ctx, cancel := context.WithTimeout(ctx, listTimeout)
+	defer cancel()
 	resp, err := d.get(ctx, "/containers/json")
 	if err != nil {
 		return nil, err

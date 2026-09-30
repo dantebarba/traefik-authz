@@ -5,7 +5,8 @@
 // lists the middleware by name, bare or as <name>@docker. Its hosts come from
 // the Host(...) matchers of traefik.http.routers.<router>.rule. The optional
 // container labels traefik-authz.name and traefik-authz.icon set the app's
-// display name and icon; without a name the router name is used.
+// display name and icon; without a name the router name is used. Label keys
+// are matched case-insensitively, as Traefik does.
 package discovery
 
 import (
@@ -32,21 +33,23 @@ var (
 // uses the middleware, sorted by host. A container labelled
 // traefik.enable=false yields nothing.
 func AppsFromLabels(labels map[string]string, middleware string) []store.App {
-	if strings.EqualFold(strings.TrimSpace(labels[enableLabel]), "false") {
+	if strings.EqualFold(strings.TrimSpace(label(labels, enableLabel)), "false") {
 		return nil
 	}
+	name := strings.TrimSpace(label(labels, nameLabel))
+	icon := strings.TrimSpace(label(labels, iconLabel))
 	byHost := map[string]store.App{}
 	for key, value := range labels {
 		router, ok := routerOf(key, ".middlewares")
 		if !ok || !UsesMiddleware(value, middleware) {
 			continue
 		}
-		name := strings.TrimSpace(labels[nameLabel])
-		if name == "" {
-			name = router
+		appName := name
+		if appName == "" {
+			appName = router
 		}
-		for _, host := range HostsFromRule(labels[routerPrefix+router+".rule"]) {
-			byHost[host] = store.App{Host: host, Router: router, Name: name, Icon: strings.TrimSpace(labels[iconLabel])}
+		for _, host := range HostsFromRule(label(labels, routerPrefix+router+".rule")) {
+			byHost[host] = store.App{Host: host, Router: router, Name: appName, Icon: icon}
 		}
 	}
 	apps := make([]store.App, 0, len(byHost))
@@ -58,11 +61,26 @@ func AppsFromLabels(labels map[string]string, middleware string) []store.App {
 }
 
 func routerOf(key, suffix string) (string, bool) {
-	if !strings.HasPrefix(key, routerPrefix) || !strings.HasSuffix(key, suffix) {
+	end := len(key) - len(suffix)
+	if end <= len(routerPrefix) || !strings.EqualFold(key[:len(routerPrefix)], routerPrefix) || !strings.EqualFold(key[end:], suffix) {
 		return "", false
 	}
-	router := strings.TrimSuffix(strings.TrimPrefix(key, routerPrefix), suffix)
-	return router, router != "" && !strings.Contains(router, ".")
+	router := key[len(routerPrefix):end]
+	return router, !strings.Contains(router, ".")
+}
+
+// label returns the value of key in labels, preferring an exact match and
+// otherwise taking a key that differs only in case.
+func label(labels map[string]string, key string) string {
+	if v, ok := labels[key]; ok {
+		return v
+	}
+	for k, v := range labels {
+		if strings.EqualFold(k, key) {
+			return v
+		}
+	}
+	return ""
 }
 
 // UsesMiddleware reports whether a comma-separated middlewares label value
