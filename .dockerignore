@@ -1,0 +1,12 @@
+.git
+.github
+.githooks
+.env
+.envrc
+.envrc.local
+bin
+dist
+data
+*.db
+*.db-shm
+*.db-wal
