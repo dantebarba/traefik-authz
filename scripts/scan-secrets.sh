@@ -46,7 +46,7 @@ content() {
 }
 
 found=0
-hits=$(content | grep -E -f /dev/fd/3 3<<EOF_PATTERNS | grep -Ev "$allowed" || true
+hits=$(content | grep -E -f /dev/fd/3 3<<EOF_PATTERNS | grep -Eiv "$allowed" || true
 $patterns
 EOF_PATTERNS
 )
