@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>traefik-authz</title>
+  <meta name="description" content="Who may open which app behind Traefik.">
+  <meta name="theme-color" content="#0b0d10">
+  <meta name="color-scheme" content="dark light">
+  <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-loading>
+  <div class="topbar" aria-hidden="true"></div>
+
+  <header class="app-header">
+    <div class="app-header__inner">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 2.6 19.4 5.4v6c0 4.6-3.2 7.9-7.4 9.6-4.2-1.7-7.4-5-7.4-9.6v-6Z" fill="url(#brandmark)"/>
+            <circle cx="12" cy="10.2" r="1.9" fill="#ffffff" opacity="0.92"/>
+            <rect x="11.25" y="11.2" width="1.5" height="4.2" rx="0.75" fill="#ffffff" opacity="0.92"/>
+            <circle cx="18.2" cy="18.2" r="2.6" fill="#46c98a" stroke="var(--bg)" stroke-width="1.2"/>
+            <defs>
+              <linearGradient id="brandmark" x1="4.6" y1="2.6" x2="19.4" y2="21" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#8b95ff"/>
+                <stop offset="1" stop-color="#5a67e8"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </span>
+        <span class="brand__name">traefik-authz</span>
+      </div>
+
+      <div class="status" id="status" role="status" aria-live="polite">
+        <span class="status__dot" data-state="idle" aria-hidden="true"></span>
+        <span class="status__text" id="status-text">Loading…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="app" id="app"></main>
+
+  <dialog class="sheet" id="confirm">
+    <form class="sheet__form" method="dialog">
+      <h2 class="sheet__title" id="confirm-title"></h2>
+      <p class="sheet__text" id="confirm-text"></p>
+      <div class="sheet__buttons">
+        <button class="btn" value="cancel">Cancel</button>
+        <button class="btn btn--danger" value="ok" id="confirm-ok">Delete</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
