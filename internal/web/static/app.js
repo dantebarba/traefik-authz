@@ -89,11 +89,7 @@ function appByHost(host) {
 }
 
 function icon(appInfo) {
-  const value = (appInfo?.icon || "").trim();
-  if (/^(https:\/\/|\/)/.test(value)) {
-    return h("span", { class: "card__icon", "aria-hidden": "true" }, h("img", { src: value, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }));
-  }
-  const glyph = value || (appInfo?.name || "?").slice(0, 1).toUpperCase();
+  const glyph = Array.from((appInfo?.icon || "").trim()).slice(0, 2).join("") || (appInfo?.name || "?").slice(0, 1).toUpperCase();
   return h("span", { class: "card__icon", "aria-hidden": "true" }, glyph);
 }
 
@@ -140,6 +136,7 @@ function empty(title, hint) {
 
 function requestCard(request) {
   const target = appByHost(request.host);
+  const requester = state.users.find((u) => u.email === request.email);
   const approve = h("button", { class: "btn btn--primary btn--small", type: "button" }, "Approve");
   const dismiss = h("button", { class: "btn btn--small", type: "button" }, "Dismiss");
   const key = { email: request.email, host: request.host };
@@ -150,7 +147,13 @@ function requestCard(request) {
     { class: "card card--nolink" },
     h("div", { class: "card__head" }, icon(target), h("span", { class: "card__title", title: request.email }, request.email)),
     h("p", { class: "card__desc" }, `wants ${target?.name || request.host}`),
-    h("div", { class: "card__meta" }, h("span", { class: "chip" }, request.host), h("span", { class: "chip" }, relative(request.requested_at))),
+    h(
+      "div",
+      { class: "card__meta" },
+      h("span", { class: "chip" }, request.host),
+      h("span", { class: "chip" }, relative(request.requested_at)),
+      requester?.disabled && h("span", { class: "chip chip--warn" }, "user disabled")
+    ),
     h("div", { class: "card__actions" }, dismiss, approve)
   );
 }

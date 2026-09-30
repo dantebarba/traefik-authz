@@ -124,7 +124,7 @@ func run(log *slog.Logger) error {
 func healthcheck() int {
 	addr := strings.TrimSpace(os.Getenv("LISTEN_ADDR"))
 	if addr == "" {
-		addr = ":8080"
+		addr = config.DefaultListenAddr
 	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {

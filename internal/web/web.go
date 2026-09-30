@@ -75,7 +75,7 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Log.Info("denied", "user", d.Email, "host", d.Host, "reason", d.Reason)
-	if d.Reason == authz.NotGranted {
+	if d.Reason == authz.NotGranted || d.Reason == authz.Disabled {
 		if err := s.Store.RecordRequest(r.Context(), d.Email, d.Host, s.Now()); err != nil {
 			s.Log.Error("record access request failed", "err", err)
 		}
@@ -108,7 +108,7 @@ func panelHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("Cache-Control", "no-cache")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
 		next.ServeHTTP(w, r)

@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// DefaultListenAddr is the listen address when LISTEN_ADDR is unset.
+const DefaultListenAddr = ":8080"
+
 // Config holds every setting of the service.
 type Config struct {
 	UserHeader     string
@@ -27,7 +30,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		Admins:         splitList(getenv("ADMIN_EMAILS")),
 		MiddlewareName: or(getenv("MIDDLEWARE_NAME"), "traefik-authz"),
 		DBPath:         or(getenv("DB_PATH"), "/data/authz.db"),
-		ListenAddr:     or(getenv("LISTEN_ADDR"), ":8080"),
+		ListenAddr:     or(getenv("LISTEN_ADDR"), DefaultListenAddr),
 		DockerHost:     or(getenv("DOCKER_HOST"), "unix:///var/run/docker.sock"),
 		ResyncInterval: 5 * time.Minute,
 	}

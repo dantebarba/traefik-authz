@@ -26,8 +26,9 @@ Traefik calls `GET /check` with the original request's headers. The rules, in or
 3. `X-Forwarded-Host` is not a discovered app → **403** (deny by default).
 4. The user exists, is enabled and holds a grant on the app → **200**.
 5. Otherwise → **403** with a page saying "You don't have access to *app*", and the attempt
-   is recorded as an access request that an admin can approve with one click. Disabled users
-   are denied without recording a request.
+   is recorded as an access request that an admin can approve with one click. A disabled user
+   gets an "Account disabled" page; its attempt is recorded too, and approving it grants the app
+   but leaves the user disabled.
 
 Grants are cached in memory and reloaded after every change made from the panel or found by
 discovery.
@@ -148,7 +149,7 @@ Optional container labels:
 | Label                | Meaning                                                             |
 | -------------------- | ------------------------------------------------------------------- |
 | `traefik-authz.name` | Display name; defaults to the router name                           |
-| `traefik-authz.icon` | An emoji or short text, or an `https://` or `/` URL of an image    |
+| `traefik-authz.icon` | An emoji or one or two characters; the panel loads no remote images |
 
 Apps are never deleted: when a container goes away its app stays listed with the last time it
 was seen, and its grants stay in place for when it comes back.

@@ -124,8 +124,8 @@ func TestCheckMatrix(t *testing.T) {
 	for _, r := range requests {
 		got[r.Email+" "+r.Host] = true
 	}
-	want := map[string]bool{"nogrant@example.com whoami.example.com": true, "stranger@example.com whoami.example.com": true}
-	if len(got) != len(want) || !got["nogrant@example.com whoami.example.com"] || !got["stranger@example.com whoami.example.com"] {
+	want := map[string]bool{"nogrant@example.com whoami.example.com": true, "stranger@example.com whoami.example.com": true, "disabled@example.com whoami.example.com": true}
+	if len(got) != len(want) || !got["nogrant@example.com whoami.example.com"] || !got["stranger@example.com whoami.example.com"] || !got["disabled@example.com whoami.example.com"] {
 		t.Fatalf("recorded requests = %v, want %v", got, want)
 	}
 }
