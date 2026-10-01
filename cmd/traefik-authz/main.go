@@ -94,17 +94,18 @@ func run(log *slog.Logger) error {
 	server := &http.Server{
 		Addr: cfg.ListenAddr,
 		Handler: (&web.Server{
-			UserHeader: cfg.UserHeader,
-			Authz:      authorizer,
-			Store:      db,
-			Log:        log,
-			Now:        time.Now,
+			UserHeader:    cfg.UserHeader,
+			RequestExpiry: cfg.RequestExpiry,
+			Authz:         authorizer,
+			Store:         db,
+			Log:           log,
+			Now:           time.Now,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- server.ListenAndServe() }()
-	log.Info("traefik-authz listening", "addr", cfg.ListenAddr, "version", version, "middleware", cfg.MiddlewareName, "admins", len(cfg.Admins))
+	log.Info("traefik-authz listening", "addr", cfg.ListenAddr, "version", version, "middleware", cfg.MiddlewareName, "admins", len(cfg.Admins), "request_expiry", cfg.RequestExpiry)
 
 	select {
 	case err := <-errc:

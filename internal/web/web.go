@@ -2,7 +2,10 @@
 // API and the embedded admin PWA.
 //
 // Every request is identified by the user header set by the forward-auth
-// login in front (X-Forwarded-User by default). The API and the PWA answer
+// login in front (X-Forwarded-User by default). A denied visit records
+// nothing: the 403 page offers a "Request access" button that posts to
+// RequestAccessPath on the same host, which Traefik sends through /check
+// like any other request, and only that post records an access request. The API and the PWA answer
 // only admins; state-changing API calls must also carry
 // "X-Requested-With: traefik-authz", which a cross-site form cannot send.
 package web
@@ -14,8 +17,10 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"traefik-authz/internal/authz"
@@ -25,13 +30,18 @@ import (
 const csrfHeader = "X-Requested-With"
 const csrfValue = "traefik-authz"
 
+// RequestAccessPath is the path, on any protected host, that the 403 page's
+// "Request access" button posts to.
+const RequestAccessPath = "/.traefik-authz/request-access"
+
 // Server holds what the handlers need.
 type Server struct {
-	UserHeader string
-	Authz      *authz.Authorizer
-	Store      *store.Store
-	Log        *slog.Logger
-	Now        func() time.Time
+	UserHeader    string
+	RequestExpiry time.Duration
+	Authz         *authz.Authorizer
+	Store         *store.Store
+	Log           *slog.Logger
+	Now           func() time.Time
 }
 
 // Handler returns the routes: /check, /healthz, /api/ and the PWA at /.
@@ -47,6 +57,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("DELETE /api/users/{email}", s.deleteUser)
 	api.HandleFunc("PUT /api/users/{email}/apps/{id}", s.grant)
 	api.HandleFunc("DELETE /api/users/{email}/apps/{id}", s.revoke)
+	api.HandleFunc("PUT /api/users/{email}/apps", s.setGrants)
 	api.HandleFunc("POST /api/requests/approve", s.approve)
 	api.HandleFunc("POST /api/requests/dismiss", s.dismiss)
 
@@ -75,12 +86,65 @@ func (s *Server) check(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Log.Info("denied", "user", d.Email, "host", d.Host, "reason", d.Reason)
-	if d.Reason == authz.NotGranted || d.Reason == authz.Disabled {
-		if err := s.Store.RecordRequest(r.Context(), d.Email, d.Host, s.Now()); err != nil {
-			s.Log.Error("record access request failed", "err", err)
-		}
+	uri, err := url.ParseRequestURI(r.Header.Get("X-Forwarded-Uri"))
+	if err != nil {
+		uri = &url.URL{Path: "/"}
 	}
-	writeForbidden(w, deniedPage(d))
+	if d.Reason == authz.NotGranted && uri.Path == RequestAccessPath && r.Header.Get("X-Forwarded-Method") == http.MethodPost {
+		s.requestAccess(w, r, d, uri)
+		return
+	}
+	writeForbidden(w, s.deniedPage(r.Context(), d, uri))
+}
+
+func (s *Server) requestAccess(w http.ResponseWriter, r *http.Request, d authz.Decision, uri *url.URL) {
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
+		s.Log.Warn("cross-site access request refused", "user", d.Email, "host", d.Host, "site", site)
+		writeForbidden(w, page{Title: "Request not sent", Detail: "Access can only be requested from this site's own page.", Email: d.Email})
+		return
+	}
+	if err := s.Store.RecordRequest(r.Context(), d.Email, d.Host, s.Now()); err != nil {
+		s.Log.Error("record access request failed", "err", err)
+		http.Error(w, "could not record the request", http.StatusInternalServerError)
+		return
+	}
+	s.Log.Info("access requested", "user", d.Email, "host", d.Host)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Location", backTo(r, returnPath(uri.Query().Get("return"))))
+	w.WriteHeader(http.StatusSeeOther)
+}
+
+// backTo makes path absolute on the host the user asked for. Traefik resolves
+// a relative Location from an auth server against the auth server's own
+// address, which would send the browser to an internal host name.
+func backTo(r *http.Request, path string) string {
+	scheme := r.Header.Get("X-Forwarded-Proto")
+	if scheme != "http" {
+		scheme = "https"
+	}
+	host := r.Header.Get("X-Forwarded-Host")
+	if u, err := url.Parse(scheme + "://" + host); err != nil || u.Host != host || host == "" {
+		return path
+	}
+	return scheme + "://" + host + path
+}
+
+// returnPath keeps a post-request redirect on the same host: only an absolute
+// path is accepted, and anything else, including //host, becomes "/".
+func returnPath(p string) string {
+	if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || strings.HasPrefix(p, "/\\") || strings.HasPrefix(p, RequestAccessPath) {
+		return "/"
+	}
+	return p
+}
+
+// requestCutoff is the oldest time a pending request may have, or zero when
+// requests never expire.
+func (s *Server) requestCutoff() time.Time {
+	if s.RequestExpiry <= 0 {
+		return time.Time{}
+	}
+	return s.Now().Add(-s.RequestExpiry)
 }
 
 func (s *Server) adminOnly(next http.Handler) http.Handler {
@@ -116,21 +180,22 @@ func panelHeaders(next http.Handler) http.Handler {
 }
 
 type state struct {
-	Me       string          `json:"me"`
-	Admins   []string        `json:"admins"`
-	Users    []store.User    `json:"users"`
-	Apps     []store.App     `json:"apps"`
-	Requests []store.Request `json:"requests"`
+	Me                string          `json:"me"`
+	RequestExpiryDays int             `json:"request_expiry_days"`
+	Admins            []string        `json:"admins"`
+	Users             []store.User    `json:"users"`
+	Apps              []store.App     `json:"apps"`
+	Requests          []store.Request `json:"requests"`
 }
 
 func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	st := state{Me: s.user(r), Admins: s.Authz.Admins()}
+	st := state{Me: s.user(r), Admins: s.Authz.Admins(), RequestExpiryDays: int(s.RequestExpiry / (24 * time.Hour))}
 	sort.Strings(st.Admins)
 	var err error
 	if st.Users, err = s.Store.ListUsers(ctx); err == nil {
 		if st.Apps, err = s.Store.ListApps(ctx); err == nil {
-			st.Requests, err = s.Store.ListRequests(ctx)
+			st.Requests, err = s.Store.ListRequests(ctx, s.requestCutoff())
 		}
 	}
 	if err != nil {
@@ -196,6 +261,22 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mutate(w, r, func(ctx context.Context) error {
 		return s.Store.Revoke(ctx, r.PathValue("email"), id)
+	})
+}
+
+func (s *Server) setGrants(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		AppIDs *[]int64 `json:"app_ids"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if body.AppIDs == nil {
+		writeError(w, http.StatusBadRequest, "send {\"app_ids\": [...]}, empty to revoke everything")
+		return
+	}
+	s.mutate(w, r, func(ctx context.Context) error {
+		return s.Store.SetGrants(ctx, r.PathValue("email"), *body.AppIDs)
 	})
 }
 

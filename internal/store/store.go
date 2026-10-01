@@ -276,6 +276,35 @@ func grantInTx(ctx context.Context, tx *sql.Tx, email string, appID int64, host 
 	return err
 }
 
+// SetGrants replaces the apps granted to a user with exactly appIDs, in one
+// transaction, and drops the user's pending requests for the apps it now
+// holds. An unknown user or app id fails the whole call with ErrNotFound.
+func (s *Store) SetGrants(ctx context.Context, email string, appIDs []int64) error {
+	email = NormalizeEmail(email)
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		if err := exists(ctx, tx, `SELECT 1 FROM users WHERE email = ?`, email); err != nil {
+			return err
+		}
+		hosts := make(map[int64]string, len(appIDs))
+		for _, id := range appIDs {
+			var host string
+			if err := tx.QueryRowContext(ctx, `SELECT host FROM apps WHERE id = ?`, id).Scan(&host); err != nil {
+				return notFound(err)
+			}
+			hosts[id] = host
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM grants WHERE user_email = ?`, email); err != nil {
+			return err
+		}
+		for id, host := range hosts {
+			if err := grantInTx(ctx, tx, email, id, host); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // Revoke takes an app away from a user. Revoking a grant that does not exist
 // is not an error.
 func (s *Store) Revoke(ctx context.Context, email string, appID int64) error {
@@ -337,9 +366,10 @@ func (s *Store) RecordRequest(ctx context.Context, email, host string, at time.T
 	return err
 }
 
-// ListRequests returns the pending access requests, newest first.
-func (s *Store) ListRequests(ctx context.Context) ([]Request, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT email, host, requested_at FROM access_requests ORDER BY requested_at DESC, email, host`)
+// ListRequests returns the pending access requests made at or after since,
+// newest first. A zero since returns them all.
+func (s *Store) ListRequests(ctx context.Context, since time.Time) ([]Request, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT email, host, requested_at FROM access_requests WHERE requested_at >= ? ORDER BY requested_at DESC, email, host`, cutoff(since))
 	if err != nil {
 		return nil, err
 	}
@@ -355,6 +385,28 @@ func (s *Store) ListRequests(ctx context.Context) ([]Request, error) {
 		requests = append(requests, r)
 	}
 	return requests, rows.Err()
+}
+
+// PendingRequest returns when the user last asked for the app at host, if
+// that request is still pending and was made at or after since.
+func (s *Store) PendingRequest(ctx context.Context, email, host string, since time.Time) (time.Time, bool, error) {
+	var at int64
+	err := s.db.QueryRowContext(ctx, `SELECT requested_at FROM access_requests WHERE email = ? AND host = ? AND requested_at >= ?`,
+		NormalizeEmail(email), NormalizeHost(host), cutoff(since)).Scan(&at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return fromUnix(at), true, nil
+}
+
+func cutoff(since time.Time) int64 {
+	if since.IsZero() {
+		return 0
+	}
+	return unix(since)
 }
 
 // DismissRequest drops a pending request without granting anything.

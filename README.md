@@ -25,10 +25,21 @@ Traefik calls `GET /check` with the original request's headers. The rules, in or
 2. The user is in `ADMIN_EMAILS` → **200**, everywhere, whatever the database says.
 3. `X-Forwarded-Host` is not a discovered app → **403** (deny by default).
 4. The user exists, is enabled and holds a grant on the app → **200**.
-5. Otherwise → **403** with a page saying "You don't have access to *app*", and the attempt
-   is recorded as an access request that an admin can approve with one click. A disabled user
-   gets an "Account disabled" page; its attempt is recorded too, and approving it grants the app
-   but leaves the user disabled.
+5. Otherwise → **403** with a page saying "You don't have access to *app*" and a
+   **Request access** button. Nothing is recorded until the user presses it. A disabled user
+   gets an "Account disabled" page without the button.
+
+The button posts to `/.traefik-authz/request-access` on the app's own host. Traefik sends that
+post through `/check` like any other request, so traefik-authz records it, answers with a
+redirect back to the page the user was on, and from then on the 403 page shows "Request sent",
+with the date it expires. Only same-origin posts count (`Sec-Fetch-Site`), so another site
+cannot file requests on a user's behalf. Apps cannot use that path; for users who already have
+access it reaches the app unchanged.
+
+A request is one row per user and app: asking again refreshes it. It stays pending for
+`REQUEST_EXPIRY_DAYS` and then stops showing up anywhere, without a cleanup job; the user can
+ask again. An admin approves it with one click, which creates the user if needed and grants the
+app, or dismisses it.
 
 Grants are cached in memory and reloaded after every change made from the panel or found by
 discovery.
@@ -129,6 +140,7 @@ it as an app.
 | `LISTEN_ADDR`     | `:8080`                       | Listen address                                                            |
 | `DOCKER_HOST`     | `unix:///var/run/docker.sock` | Docker API: `unix:///path` or `tcp://host:port` (e.g. a socket proxy)     |
 | `RESYNC_INTERVAL` | `5m`                          | Full rescan of the containers, on top of the start events                 |
+| `REQUEST_EXPIRY_DAYS` | `7`                       | Days an unanswered access request stays pending; `0` keeps it forever     |
 | `LOG_LEVEL`       | `info`                        | `debug` also logs every allowed request                                   |
 
 E-mail addresses and hosts are compared case-insensitively; ports in `X-Forwarded-Host` are
@@ -156,9 +168,11 @@ was seen, and its grants stay in place for when it comes back.
 
 ## Admin panel and API
 
-The panel shows pending access requests (approve or dismiss), the users (add by e-mail, grant
-apps with toggles, disable, delete) and the discovered apps. It is a plain HTML/JS PWA embedded
-in the binary, with a service worker that keeps the shell available offline.
+The panel shows pending access requests (approve or dismiss), the users and the discovered apps.
+Opening a user shows one row per app with a switch to grant or revoke it, "Grant all" and
+"Revoke all", and disable and delete; adding a user by e-mail opens that sheet right away. It is
+a plain HTML/JS PWA embedded in the binary, with a service worker that keeps the shell available
+offline.
 
 It talks to a JSON API under `/api/`, open to `ADMIN_EMAILS` only. State-changing calls must
 send `X-Requested-With: traefik-authz`, which a cross-site form cannot.
@@ -171,6 +185,7 @@ send `X-Requested-With: traefik-authz`, which a cross-site form cannot.
 | `DELETE /api/users/{email}`           |                                  |
 | `PUT /api/users/{email}/apps/{id}`    |                                  |
 | `DELETE /api/users/{email}/apps/{id}` |                                  |
+| `PUT /api/users/{email}/apps`         | `{"app_ids": [1, 2]}` (replaces) |
 | `POST /api/requests/approve`          | `{"email": "…", "host": "…"}`    |
 | `POST /api/requests/dismiss`          | `{"email": "…", "host": "…"}`    |
 

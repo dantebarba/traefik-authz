@@ -116,7 +116,7 @@ func TestGrantRevoke(t *testing.T) {
 	if !reflect.DeepEqual(users[0].AppIDs, []int64{a.ID, b.ID}) {
 		t.Fatalf("app ids = %v", users[0].AppIDs)
 	}
-	requests, _ := s.ListRequests(ctx)
+	requests, _ := s.ListRequests(ctx, time.Time{})
 	if len(requests) != 0 {
 		t.Fatalf("grant should drop the matching requests: %+v", requests)
 	}
@@ -129,6 +129,49 @@ func TestGrantRevoke(t *testing.T) {
 	users, _ = s.ListUsers(ctx)
 	if !reflect.DeepEqual(users[0].AppIDs, []int64{b.ID}) {
 		t.Fatalf("after revoke app ids = %v", users[0].AppIDs)
+	}
+}
+
+func TestSetGrants(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	a := mustApp(t, s, "a.example.com")
+	b := mustApp(t, s, "b.example.com")
+	c := mustApp(t, s, "c.example.com")
+	if err := s.SetGrants(ctx, "ivy@example.com", nil); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown user: err = %v", err)
+	}
+	s.AddUser(ctx, "ivy@example.com", "", t0)
+	s.Grant(ctx, "ivy@example.com", a.ID)
+	s.RecordRequest(ctx, "ivy@example.com", "b.example.com", t0)
+	s.RecordRequest(ctx, "ivy@example.com", "c.example.com", t0)
+	if err := s.SetGrants(ctx, "IVY@example.com", []int64{b.ID, b.ID}); err != nil {
+		t.Fatal(err)
+	}
+	users, _ := s.ListUsers(ctx)
+	if !reflect.DeepEqual(users[0].AppIDs, []int64{b.ID}) {
+		t.Fatalf("app ids = %v, want [%d]", users[0].AppIDs, b.ID)
+	}
+	requests, _ := s.ListRequests(ctx, time.Time{})
+	if len(requests) != 1 || requests[0].Host != "c.example.com" {
+		t.Fatalf("requests = %+v, want only the one for c", requests)
+	}
+	if err := s.SetGrants(ctx, "ivy@example.com", []int64{a.ID, 999}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown app: err = %v", err)
+	}
+	users, _ = s.ListUsers(ctx)
+	if !reflect.DeepEqual(users[0].AppIDs, []int64{b.ID}) {
+		t.Fatalf("failed call changed grants: %v", users[0].AppIDs)
+	}
+	if err := s.SetGrants(ctx, "ivy@example.com", []int64{a.ID, b.ID, c.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetGrants(ctx, "ivy@example.com", []int64{}); err != nil {
+		t.Fatal(err)
+	}
+	users, _ = s.ListUsers(ctx)
+	if len(users[0].AppIDs) != 0 {
+		t.Fatalf("revoke all left %v", users[0].AppIDs)
 	}
 }
 
@@ -166,7 +209,7 @@ func TestRequests(t *testing.T) {
 	s.RecordRequest(ctx, "Eve@example.com", "A.example.com", t0)
 	s.RecordRequest(ctx, "eve@example.com", "a.example.com", t0.Add(time.Minute))
 	s.RecordRequest(ctx, "fay@example.com", "a.example.com", t0)
-	requests, err := s.ListRequests(ctx)
+	requests, err := s.ListRequests(ctx, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,10 +232,35 @@ func TestRequests(t *testing.T) {
 	if err := s.ApproveRequest(ctx, "eve@example.com", "a.example.com", t0); err != nil {
 		t.Fatal(err)
 	}
-	requests, _ = s.ListRequests(ctx)
+	requests, _ = s.ListRequests(ctx, time.Time{})
 	users, _ := s.ListUsers(ctx)
 	if len(requests) != 0 || len(users) != 1 || users[0].Email != "eve@example.com" || len(users[0].AppIDs) != 1 {
 		t.Fatalf("after approve: requests %+v, users %+v", requests, users)
+	}
+}
+
+func TestRequestExpiry(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	s.RecordRequest(ctx, "old@example.com", "a.example.com", t0)
+	s.RecordRequest(ctx, "new@example.com", "a.example.com", t0.Add(48*time.Hour))
+	cut := t0.Add(24 * time.Hour)
+	requests, _ := s.ListRequests(ctx, cut)
+	if len(requests) != 1 || requests[0].Email != "new@example.com" {
+		t.Fatalf("since cut: %+v", requests)
+	}
+	if _, ok, _ := s.PendingRequest(ctx, "OLD@example.com", "a.example.com", cut); ok {
+		t.Fatal("expired request reported pending")
+	}
+	if at, ok, err := s.PendingRequest(ctx, "old@example.com", "A.example.com", time.Time{}); err != nil || !ok || !at.Equal(t0) {
+		t.Fatalf("PendingRequest without cut = %v, %v, %v", at, ok, err)
+	}
+	if _, ok, _ := s.PendingRequest(ctx, "nobody@example.com", "a.example.com", time.Time{}); ok {
+		t.Fatal("missing request reported pending")
+	}
+	s.RecordRequest(ctx, "old@example.com", "a.example.com", t0.Add(48*time.Hour))
+	if _, ok, _ := s.PendingRequest(ctx, "old@example.com", "a.example.com", cut); !ok {
+		t.Fatal("asking again does not renew an expired request")
 	}
 }
 

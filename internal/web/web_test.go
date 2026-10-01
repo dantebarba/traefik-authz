@@ -22,6 +22,7 @@ type env struct {
 	store *store.Store
 	h     http.Handler
 	app   store.App
+	now   *time.Time
 }
 
 func setup(t *testing.T) *env {
@@ -38,13 +39,14 @@ func setup(t *testing.T) *env {
 	}
 	apps, _ := db.ListApps(ctx)
 	s := &Server{
-		UserHeader: "X-Forwarded-User",
-		Authz:      authz.New([]string{admin}, db),
-		Store:      db,
-		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Now:        func() time.Time { return now },
+		UserHeader:    "X-Forwarded-User",
+		RequestExpiry: 7 * 24 * time.Hour,
+		Authz:         authz.New([]string{admin}, db),
+		Store:         db,
+		Log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Now:           func() time.Time { return now },
 	}
-	return &env{t: t, store: db, h: s.Handler(), app: apps[0]}
+	return &env{t: t, store: db, h: s.Handler(), app: apps[0], now: &now}
 }
 
 func (e *env) check(user, host string) *httptest.ResponseRecorder {
@@ -58,6 +60,30 @@ func (e *env) check(user, host string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	return rec
+}
+
+func (e *env) requestAccess(user, host, target, site string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/check", nil)
+	req.Header.Set("X-Forwarded-User", user)
+	req.Header.Set("X-Forwarded-Host", host)
+	req.Header.Set("X-Forwarded-Method", http.MethodPost)
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Uri", target)
+	if site != "" {
+		req.Header.Set("Sec-Fetch-Site", site)
+	}
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	return rec
+}
+
+func (e *env) pending() []string {
+	requests, _ := e.store.ListRequests(context.Background(), e.now.Add(-7*24*time.Hour))
+	out := []string{}
+	for _, r := range requests {
+		out = append(out, r.Email+" "+r.Host)
+	}
+	return out
 }
 
 func (e *env) call(user, method, path, body string, csrf bool) *httptest.ResponseRecorder {
@@ -103,7 +129,7 @@ func TestCheckMatrix(t *testing.T) {
 		{"unknown host", "granted@example.com", "unknown.example.com", 403, "Access denied"},
 		{"granted", "granted@example.com", "whoami.example.com", 200, ""},
 		{"granted, host with port", "Granted@example.com", "whoami.example.com:443", 200, ""},
-		{"without grant", "nogrant@example.com", "whoami.example.com", 403, "have access to whoami"},
+		{"without grant", "nogrant@example.com", "whoami.example.com", 403, "Request access"},
 		{"unknown user", "stranger@example.com", "whoami.example.com", 403, "have access to whoami"},
 		{"disabled", "disabled@example.com", "whoami.example.com", 403, "Account disabled"},
 	}
@@ -119,14 +145,92 @@ func TestCheckMatrix(t *testing.T) {
 		})
 	}
 
-	requests, _ := e.store.ListRequests(ctx)
-	got := map[string]bool{}
-	for _, r := range requests {
-		got[r.Email+" "+r.Host] = true
+	if got := e.pending(); len(got) != 0 {
+		t.Fatalf("plain denials recorded requests: %v", got)
 	}
-	want := map[string]bool{"nogrant@example.com whoami.example.com": true, "stranger@example.com whoami.example.com": true, "disabled@example.com whoami.example.com": true}
-	if len(got) != len(want) || !got["nogrant@example.com whoami.example.com"] || !got["stranger@example.com whoami.example.com"] || !got["disabled@example.com whoami.example.com"] {
-		t.Fatalf("recorded requests = %v, want %v", got, want)
+}
+
+func TestRequestAccess(t *testing.T) {
+	e := setup(t)
+	page := e.check("ann@example.com", "whoami.example.com").Body.String()
+	if !strings.Contains(page, `action="/.traefik-authz/request-access?return=%2F"`) {
+		t.Fatalf("no request button in %s", page)
+	}
+
+	rec := e.requestAccess("ann@example.com", "whoami.example.com", RequestAccessPath+"?return=%2Fdocs%3Fpage%3D2", "same-origin")
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "https://whoami.example.com/docs?page=2" {
+		t.Fatalf("request access = %d to %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if got := e.pending(); len(got) != 1 || got[0] != "ann@example.com whoami.example.com" {
+		t.Fatalf("pending = %v", got)
+	}
+	page = e.check("ann@example.com", "whoami.example.com").Body.String()
+	if strings.Contains(page, "<form") || !strings.Contains(page, "Request sent on 4 Mar 2026. It expires on 11 Mar 2026") {
+		t.Fatalf("pending page = %s", page)
+	}
+
+	*e.now = e.now.Add(8 * 24 * time.Hour)
+	if page := e.check("ann@example.com", "whoami.example.com").Body.String(); !strings.Contains(page, "<form") {
+		t.Fatalf("expired request still blocks the button: %s", page)
+	}
+	var st state
+	json.Unmarshal(e.mustCall("GET", "/api/state", "", 200).Body.Bytes(), &st)
+	if len(st.Requests) != 0 || st.RequestExpiryDays != 7 {
+		t.Fatalf("state after expiry: requests %+v, days %d", st.Requests, st.RequestExpiryDays)
+	}
+
+	e.mustCall("POST", "/api/users", `{"email":"dee@example.com"}`, 201)
+	e.mustCall("PATCH", "/api/users/dee@example.com", `{"disabled":true}`, 204)
+	for _, c := range []struct{ name, user, host, site string }{
+		{"cross-site", "bob@example.com", "whoami.example.com", "cross-site"},
+		{"same-site subdomain", "bob@example.com", "whoami.example.com", "same-site"},
+		{"disabled user", "dee@example.com", "whoami.example.com", "same-origin"},
+		{"unknown host", "bob@example.com", "other.example.com", "same-origin"},
+	} {
+		if rec := e.requestAccess(c.user, c.host, RequestAccessPath, c.site); rec.Code != 403 {
+			t.Errorf("%s: code %d", c.name, rec.Code)
+		}
+	}
+	if rec := e.requestAccess(admin, "whoami.example.com", RequestAccessPath, ""); rec.Code != 200 {
+		t.Errorf("admin passes through: %d", rec.Code)
+	}
+	if got := e.pending(); len(got) != 0 {
+		t.Fatalf("refused requests were recorded: %v", got)
+	}
+}
+
+func TestBackTo(t *testing.T) {
+	for _, c := range []struct{ proto, host, want string }{
+		{"https", "whoami.example.com", "https://whoami.example.com/x"},
+		{"http", "whoami.example.com:8080", "http://whoami.example.com:8080/x"},
+		{"", "whoami.example.com", "https://whoami.example.com/x"},
+		{"javascript", "whoami.example.com", "https://whoami.example.com/x"},
+		{"https", "", "/x"},
+		{"https", "evil.example/path", "/x"},
+		{"https", "a@example.org", "/x"},
+	} {
+		r := httptest.NewRequest(http.MethodGet, "/check", nil)
+		r.Header.Set("X-Forwarded-Proto", c.proto)
+		r.Header.Set("X-Forwarded-Host", c.host)
+		if got := backTo(r, "/x"); got != c.want {
+			t.Errorf("backTo(%q, %q) = %q, want %q", c.proto, c.host, got, c.want)
+		}
+	}
+}
+
+func TestReturnPath(t *testing.T) {
+	for in, want := range map[string]string{
+		"/":                     "/",
+		"/docs?x=1":             "/docs?x=1",
+		"":                      "/",
+		"https://evil.example/": "/",
+		"//evil.example/":       "/",
+		"/\\evil.example/":      "/",
+		RequestAccessPath:       "/",
+	} {
+		if got := returnPath(in); got != want {
+			t.Errorf("returnPath(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
@@ -168,10 +272,30 @@ func TestPanelFlow(t *testing.T) {
 	e.mustCall("DELETE", "/api/users/pat@example.com", "", 404)
 }
 
+func TestGrantAllAndRevokeAll(t *testing.T) {
+	e := setup(t)
+	e.mustCall("POST", "/api/users", `{"email":"sam@example.com"}`, 201)
+	path := "/api/users/sam@example.com/apps"
+	e.mustCall("PUT", path, `{"app_ids":[`+itoa(e.app.ID)+`]}`, 204)
+	if rec := e.check("sam@example.com", "whoami.example.com"); rec.Code != 200 {
+		t.Fatalf("after grant all: %d", rec.Code)
+	}
+	e.mustCall("PUT", path, `{"app_ids":[]}`, 204)
+	if rec := e.check("sam@example.com", "whoami.example.com"); rec.Code != 403 {
+		t.Fatalf("after revoke all: %d", rec.Code)
+	}
+	e.mustCall("PUT", path, `{}`, 400)
+	e.mustCall("PUT", path, `{"app_ids":[999]}`, 404)
+	e.mustCall("PUT", "/api/users/nobody@example.com/apps", `{"app_ids":[]}`, 404)
+	if rec := e.call(admin, "PUT", path, `{"app_ids":[]}`, false); rec.Code != 403 {
+		t.Fatalf("without CSRF header: %d", rec.Code)
+	}
+}
+
 func TestApproveAndDismissRequests(t *testing.T) {
 	e := setup(t)
-	e.check("quinn@example.com", "whoami.example.com")
-	e.check("rae@example.com", "whoami.example.com")
+	e.requestAccess("quinn@example.com", "whoami.example.com", RequestAccessPath, "same-origin")
+	e.requestAccess("rae@example.com", "whoami.example.com", RequestAccessPath, "")
 
 	var st state
 	json.Unmarshal(e.mustCall("GET", "/api/state", "", 200).Body.Bytes(), &st)

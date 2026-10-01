@@ -425,49 +425,6 @@ body[data-loading] .topbar::before {
   gap: 0.5rem;
 }
 
-.toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.toggles__option {
-  position: relative;
-}
-
-.toggles__option input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.toggles__option span {
-  display: inline-block;
-  min-width: 3.4rem;
-  padding: 0.4rem 0.7rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  text-align: center;
-  font-size: 0.82rem;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.toggles__option input:checked + span {
-  border-color: var(--accent-line);
-  background: var(--accent-weak);
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.toggles__option input:focus-visible + span {
-  outline: 2px solid var(--accent-line);
-  outline-offset: 2px;
-}
-
 .btn {
   padding: 0.5rem 0.95rem;
   border: 1px solid var(--border-strong);
@@ -687,8 +644,8 @@ body[data-loading] .topbar::before {
 }
 
 .btn:disabled {
-  cursor: progress;
-  opacity: 0.6;
+  cursor: default;
+  opacity: 0.45;
 }
 
 .btn:focus-visible {
@@ -696,12 +653,175 @@ body[data-loading] .topbar::before {
   outline-offset: 2px;
 }
 
-.toggles__option input:disabled + span {
+.card__title--sans {
+  font-family: var(--font-sans);
+  font-size: 0.92rem;
+}
+
+.card--button {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+
+.card__icons {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.sheet--wide {
+  width: min(560px, calc(100% - 24px));
+  max-height: min(760px, calc(100dvh - 24px));
+  overflow: auto;
+}
+
+.sheet__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.sheet__heading {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.sheet__title--mono {
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.sheet__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sheet__label {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.sheet__group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.sheet__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.access-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
+  overflow: hidden;
+}
+
+.access-row + .access-row {
+  border-top: 1px solid var(--border);
+}
+
+.access-row__label {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.access-row__label:hover {
+  background: var(--surface-2);
+}
+
+.access-row__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.access-row__name {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.access-row__seen {
+  flex: none;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.switch {
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-3);
+  appearance: none;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: translate 160ms cubic-bezier(0.2, 0.8, 0.2, 1), background-color 120ms ease;
+}
+
+.switch:checked {
+  border-color: transparent;
+  background: var(--accent);
+}
+
+.switch:checked::before {
+  translate: 16px 0;
+  background: #fff;
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+
+.switch:disabled {
   cursor: progress;
   opacity: 0.6;
 }
 
-.card__title--sans {
-  font-family: var(--font-sans);
-  font-size: 0.92rem;
+@media (max-width: 560px) {
+  .access-row__seen {
+    display: none;
+  }
 }

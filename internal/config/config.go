@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -20,9 +21,11 @@ type Config struct {
 	ListenAddr     string
 	DockerHost     string
 	ResyncInterval time.Duration
+	RequestExpiry  time.Duration
 }
 
 // FromEnv reads the settings through getenv, applying the defaults.
+// REQUEST_EXPIRY_DAYS (default 7) becomes RequestExpiry; 0 means never.
 // ADMIN_EMAILS is required: without an admin nobody could open the panel.
 func FromEnv(getenv func(string) string) (Config, error) {
 	c := Config{
@@ -33,6 +36,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 		ListenAddr:     or(getenv("LISTEN_ADDR"), DefaultListenAddr),
 		DockerHost:     or(getenv("DOCKER_HOST"), "unix:///var/run/docker.sock"),
 		ResyncInterval: 5 * time.Minute,
+		RequestExpiry:  7 * 24 * time.Hour,
 	}
 	if len(c.Admins) == 0 {
 		return Config{}, fmt.Errorf("ADMIN_EMAILS is empty: list at least one admin e-mail address")
@@ -43,6 +47,13 @@ func FromEnv(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("RESYNC_INTERVAL must be a positive duration such as 5m")
 		}
 		c.ResyncInterval = d
+	}
+	if v := strings.TrimSpace(getenv("REQUEST_EXPIRY_DAYS")); v != "" {
+		days, err := strconv.Atoi(v)
+		if err != nil || days < 0 {
+			return Config{}, fmt.Errorf("REQUEST_EXPIRY_DAYS must be a whole number of days, 0 to keep requests forever")
+		}
+		c.RequestExpiry = time.Duration(days) * 24 * time.Hour
 	}
 	return c, nil
 }
