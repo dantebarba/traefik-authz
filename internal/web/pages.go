@@ -5,7 +5,6 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
-	"time"
 
 	"traefik-authz/internal/authz"
 )
@@ -46,7 +45,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 <main class="card">
 <span class="chip">403</span>
 <h1>{{.Title}}</h1>
-<p>{{.Detail}}</p>
+{{if .Detail}}<p>{{.Detail}}</p>{{end}}
 {{if .Note}}<p class="note">{{.Note}}</p>{{end}}
 {{if .Action}}<form method="post" action="{{.Action}}"><button type="submit">Request access</button></form>{{end}}
 {{if .Email}}<p>Signed in as <code>{{.Email}}</code>.</p>{{end}}
@@ -56,33 +55,23 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 `))
 
 // deniedPage builds the 403 page for a denied decision. When the user may ask
-// for the app, it offers the "Request access" button, or, once a request is
-// pending, says when it was sent and when it expires.
+// for the app, it offers the "Request access" button, or says the request was
+// sent once one is pending.
 func (s *Server) deniedPage(ctx context.Context, d authz.Decision, uri *url.URL) page {
 	if d.Reason != authz.NotGranted {
 		return deniedReason(d)
 	}
 	p := page{Title: "You don't have access to " + d.App.Name, Email: d.Email}
-	at, pending, err := s.Store.PendingRequest(ctx, d.Email, d.Host, s.requestCutoff())
+	_, pending, err := s.Store.PendingRequest(ctx, d.Email, d.Host, s.requestCutoff())
 	if err != nil {
 		s.Log.Error("look up access request failed", "err", err)
 	}
-	switch {
-	case pending && s.RequestExpiry > 0:
-		p.Detail = "An administrator can grant it from the panel."
-		p.Note = "Request sent on " + day(at) + ". It expires on " + day(at.Add(s.RequestExpiry)) + " if nobody approves it."
-	case pending:
-		p.Detail = "An administrator can grant it from the panel."
-		p.Note = "Request sent on " + day(at) + "."
-	default:
-		p.Detail = "Ask for it below, and an administrator will see your request in the panel."
+	if pending {
+		p.Note = "Request sent."
+	} else {
 		p.Action = RequestAccessPath + "?" + url.Values{"return": {returnPath(uri.RequestURI())}}.Encode()
 	}
 	return p
-}
-
-func day(t time.Time) string {
-	return t.UTC().Format("2 Jan 2006")
 }
 
 func deniedReason(d authz.Decision) page {
@@ -92,7 +81,7 @@ func deniedReason(d authz.Decision) page {
 	case authz.UnknownHost:
 		return page{Title: "Access denied", Detail: "This site is not open to anyone yet.", Email: d.Email}
 	case authz.Disabled:
-		return page{Title: "Account disabled", Detail: "Your account has been disabled. Ask an administrator to turn it back on.", Email: d.Email}
+		return page{Title: "Account disabled", Detail: "Your account is disabled.", Email: d.Email}
 	default:
 		return page{Title: "Access denied", Email: d.Email}
 	}

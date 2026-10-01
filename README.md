@@ -31,8 +31,7 @@ Traefik calls `GET /check` with the original request's headers. The rules, in or
 
 The button posts to `/.traefik-authz/request-access` on the app's own host. Traefik sends that
 post through `/check` like any other request, so traefik-authz records it, answers with a
-redirect back to the page the user was on, and from then on the 403 page shows "Request sent",
-with the date it expires. Only same-origin posts count (`Sec-Fetch-Site`), so another site
+redirect back to the page the user was on, and from then on the 403 page shows "Request sent". Only same-origin posts count (`Sec-Fetch-Site`), so another site
 cannot file requests on a user's behalf. Apps cannot use that path; for users who already have
 access it reaches the app unchanged.
 

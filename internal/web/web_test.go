@@ -165,7 +165,7 @@ func TestRequestAccess(t *testing.T) {
 		t.Fatalf("pending = %v", got)
 	}
 	page = e.check("ann@example.com", "whoami.example.com").Body.String()
-	if strings.Contains(page, "<form") || !strings.Contains(page, "Request sent on 4 Mar 2026. It expires on 11 Mar 2026") {
+	if strings.Contains(page, "<form") || !strings.Contains(page, "Request sent.") {
 		t.Fatalf("pending page = %s", page)
 	}
 
