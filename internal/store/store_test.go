@@ -189,7 +189,7 @@ func TestUpsertAppKeepsIDAndGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	apps, _ := s.ListApps(ctx)
-	want := App{ID: first.ID, Host: "app.example.com", Router: "renamed", Name: "Renamed", Icon: "🔒", LastSeen: later}
+	want := App{ID: first.ID, Host: "app.example.com", Router: "renamed", Name: "Renamed", Icon: "🔒", LastSeen: later, FaviconAt: 0}
 	if len(apps) != 1 || !reflect.DeepEqual(apps[0], want) {
 		t.Fatalf("apps = %+v, want %+v", apps, want)
 	}
@@ -199,6 +199,28 @@ func TestUpsertAppKeepsIDAndGrants(t *testing.T) {
 	}
 	if err := s.UpsertApp(ctx, App{Host: " "}, t0); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("empty host: err = %v", err)
+	}
+}
+
+func TestFavicons(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	app := mustApp(t, s, "a.example.com")
+	if app.FaviconAt != 0 {
+		t.Fatalf("new app has a favicon: %+v", app)
+	}
+	if _, _, err := s.Favicon(ctx, app.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing favicon: err = %v", err)
+	}
+	s.SetFavicon(ctx, "A.example.com", "image/png", []byte("one"), t0)
+	s.SetFavicon(ctx, "a.example.com", "image/svg+xml", []byte("two"), t0.Add(time.Hour))
+	ct, data, err := s.Favicon(ctx, app.ID)
+	if err != nil || ct != "image/svg+xml" || string(data) != "two" {
+		t.Fatalf("Favicon = %q, %q, %v", ct, data, err)
+	}
+	apps, _ := s.ListApps(ctx)
+	if apps[0].FaviconAt != t0.Add(time.Hour).Unix() {
+		t.Fatalf("favicon_at = %d", apps[0].FaviconAt)
 	}
 }
 

@@ -362,6 +362,20 @@ func TestPanelAssets(t *testing.T) {
 	}
 }
 
+func TestFaviconEndpoint(t *testing.T) {
+	e := setup(t)
+	path := "/api/apps/" + itoa(e.app.ID) + "/icon"
+	e.mustCall("GET", path, "", 404)
+	e.store.SetFavicon(context.Background(), "whoami.example.com", "image/svg+xml", []byte("<svg/>"), time.Now())
+	rec := e.mustCall("GET", path, "", 200)
+	if rec.Body.String() != "<svg/>" || rec.Header().Get("Content-Type") != "image/svg+xml" || !strings.Contains(rec.Header().Get("Content-Security-Policy"), "sandbox") {
+		t.Fatalf("icon = %q, headers %v", rec.Body, rec.Header())
+	}
+	if rec := e.call("someone@example.com", "GET", path, "", false); rec.Code != 403 {
+		t.Fatalf("non-admin icon = %d", rec.Code)
+	}
+}
+
 func TestHealthz(t *testing.T) {
 	e := setup(t)
 	if rec := e.call("", "GET", "/healthz", "", false); rec.Code != 200 {

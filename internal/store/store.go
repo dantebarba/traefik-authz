@@ -55,6 +55,12 @@ CREATE TABLE IF NOT EXISTS access_requests (
 	requested_at INTEGER NOT NULL,
 	PRIMARY KEY (email, host)
 );
+CREATE TABLE IF NOT EXISTS favicons (
+	host         TEXT PRIMARY KEY,
+	content_type TEXT NOT NULL,
+	data         BLOB NOT NULL,
+	fetched_at   INTEGER NOT NULL
+);
 `
 
 // User is a person who may be granted apps.
@@ -67,13 +73,15 @@ type User struct {
 }
 
 // App is a host guarded by the authz middleware, as found by discovery.
+// FaviconAt is the Unix time its favicon was fetched, 0 when there is none.
 type App struct {
-	ID       int64     `json:"id"`
-	Host     string    `json:"host"`
-	Router   string    `json:"router"`
-	Name     string    `json:"name"`
-	Icon     string    `json:"icon"`
-	LastSeen time.Time `json:"last_seen"`
+	ID        int64     `json:"id"`
+	Host      string    `json:"host"`
+	Router    string    `json:"router"`
+	Name      string    `json:"name"`
+	Icon      string    `json:"icon"`
+	LastSeen  time.Time `json:"last_seen"`
+	FaviconAt int64     `json:"favicon_at"`
 }
 
 // Request is a denied attempt by an authenticated user to reach a known app.
@@ -330,7 +338,10 @@ func (s *Store) UpsertApp(ctx context.Context, app App, seen time.Time) error {
 
 // ListApps returns every app ever discovered, ordered by name and host.
 func (s *Store) ListApps(ctx context.Context) ([]App, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, host, router, name, icon, last_seen FROM apps ORDER BY name COLLATE NOCASE, host`)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT a.id, a.host, a.router, a.name, a.icon, a.last_seen, COALESCE(f.fetched_at, 0)
+		FROM apps a LEFT JOIN favicons f ON f.host = a.host
+		ORDER BY a.name COLLATE NOCASE, a.host`)
 	if err != nil {
 		return nil, err
 	}
@@ -349,11 +360,27 @@ func (s *Store) ListApps(ctx context.Context) ([]App, error) {
 func scanApp(rows *sql.Rows) (App, error) {
 	var a App
 	var seen int64
-	if err := rows.Scan(&a.ID, &a.Host, &a.Router, &a.Name, &a.Icon, &seen); err != nil {
+	if err := rows.Scan(&a.ID, &a.Host, &a.Router, &a.Name, &a.Icon, &seen, &a.FaviconAt); err != nil {
 		return App{}, err
 	}
 	a.LastSeen = fromUnix(seen)
 	return a, nil
+}
+
+// SetFavicon stores the favicon of the app at host, replacing any earlier one.
+func (s *Store) SetFavicon(ctx context.Context, host, contentType string, data []byte, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO favicons (host, content_type, data, fetched_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT (host) DO UPDATE SET content_type = excluded.content_type, data = excluded.data, fetched_at = excluded.fetched_at`,
+		NormalizeHost(host), contentType, data, unix(at))
+	return err
+}
+
+// Favicon returns the stored favicon of the app with the given id.
+func (s *Store) Favicon(ctx context.Context, appID int64) (contentType string, data []byte, err error) {
+	err = s.db.QueryRowContext(ctx, `
+		SELECT f.content_type, f.data FROM favicons f JOIN apps a ON a.host = f.host WHERE a.id = ?`, appID).Scan(&contentType, &data)
+	return contentType, data, notFound(err)
 }
 
 // RecordRequest stores a denied attempt, keeping one entry per user and host

@@ -101,11 +101,17 @@ function appByHost(host) {
 }
 
 function icon(appInfo) {
-  const glyph =
-    Array.from((appInfo?.icon || "").trim())
-      .slice(0, 2)
-      .join("") || (appInfo?.name || "?").slice(0, 1).toUpperCase();
-  return h("span", { class: "card__icon", "aria-hidden": "true" }, glyph);
+  const label = Array.from((appInfo?.icon || "").trim())
+    .slice(0, 2)
+    .join("");
+  const letter = (appInfo?.name || "?").slice(0, 1).toUpperCase();
+  if (!label && appInfo?.favicon_at) {
+    const img = h("img", { src: `api/apps/${appInfo.id}/icon?v=${appInfo.favicon_at}`, alt: "", loading: "lazy", decoding: "async" });
+    const holder = h("span", { class: "card__icon card__icon--image", "aria-hidden": "true" }, img);
+    img.addEventListener("error", () => holder.replaceChildren(letter), { once: true });
+    return holder;
+  }
+  return h("span", { class: "card__icon", "aria-hidden": "true" }, label || letter);
 }
 
 async function act(button, work, done) {

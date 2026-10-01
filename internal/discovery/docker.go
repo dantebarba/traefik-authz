@@ -14,10 +14,20 @@ import (
 
 const listTimeout = 30 * time.Second
 
-// Container is the part of a running Docker container that discovery reads.
+// Container is the part of a running Docker container that discovery reads:
+// its labels, the ports it exposes and its address on each network.
 type Container struct {
 	ID     string            `json:"Id"`
 	Labels map[string]string `json:"Labels"`
+	Ports  []struct {
+		PrivatePort int    `json:"PrivatePort"`
+		Type        string `json:"Type"`
+	} `json:"Ports"`
+	NetworkSettings struct {
+		Networks map[string]struct {
+			IPAddress string `json:"IPAddress"`
+		} `json:"Networks"`
+	} `json:"NetworkSettings"`
 }
 
 // Docker talks to the Docker Engine API with the standard library only.

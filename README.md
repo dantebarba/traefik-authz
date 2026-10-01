@@ -160,7 +160,15 @@ Optional container labels:
 | Label                | Meaning                                                             |
 | -------------------- | ------------------------------------------------------------------- |
 | `traefik-authz.name` | Display name; defaults to the router name                           |
-| `traefik-authz.icon` | An emoji or one or two characters; the panel loads no remote images |
+| `traefik-authz.icon` | An emoji or one or two characters, shown instead of the favicon     |
+
+Each app's favicon is fetched from its container, straight over the Docker network (not through
+Traefik, where the login would redirect). The port comes from the router's
+`traefik.http.services.<service>.loadbalancer.server.port` label, or the container's only exposed
+port; traefik-authz must share a network with the container. It reads the home page, follows the
+best `<link rel="icon">` or `apple-touch-icon` on the same origin, and falls back to
+`/favicon.ico`. Icons are stored in the database, served to the panel from its own origin, and
+refreshed daily (an hour after a failure). Apps without one show their first letter.
 
 Apps are never deleted: when a container goes away its app stays listed with the last time it
 was seen, and its grants stay in place for when it comes back.

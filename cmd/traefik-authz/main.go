@@ -82,6 +82,8 @@ func run(log *slog.Logger) error {
 	watcher := &discovery.Watcher{
 		Engine:     docker,
 		Sink:       db,
+		Icons:      db,
+		IconClient: discovery.NewFaviconClient(),
 		Middleware: cfg.MiddlewareName,
 		Interval:   cfg.ResyncInterval,
 		Retry:      10 * time.Second,

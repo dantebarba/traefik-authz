@@ -58,6 +58,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("PUT /api/users/{email}/apps/{id}", s.grant)
 	api.HandleFunc("DELETE /api/users/{email}/apps/{id}", s.revoke)
 	api.HandleFunc("PUT /api/users/{email}/apps", s.setGrants)
+	api.HandleFunc("GET /api/apps/{id}/icon", s.favicon)
 	api.HandleFunc("POST /api/requests/approve", s.approve)
 	api.HandleFunc("POST /api/requests/dismiss", s.dismiss)
 
@@ -278,6 +279,24 @@ func (s *Server) setGrants(w http.ResponseWriter, r *http.Request) {
 	s.mutate(w, r, func(ctx context.Context) error {
 		return s.Store.SetGrants(ctx, r.PathValue("email"), *body.AppIDs)
 	})
+}
+
+func (s *Server) favicon(w http.ResponseWriter, r *http.Request) {
+	id, ok := appID(w, r)
+	if !ok {
+		return
+	}
+	contentType, data, err := s.Store.Favicon(r.Context(), id)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", contentType)
+	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Cache-Control", "private, max-age=86400")
+	w.Write(data)
 }
 
 type requestKey struct {
