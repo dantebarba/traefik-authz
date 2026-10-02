@@ -1,0 +1,77 @@
+// Package config reads the service settings from the environment. Errors name
+// the variable, never its value.
+package config
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// DefaultListenAddr is the listen address when LISTEN_ADDR is unset.
+const DefaultListenAddr = ":8080"
+
+// Config holds every setting of the service.
+type Config struct {
+	UserHeader     string
+	Admins         []string
+	MiddlewareName string
+	DBPath         string
+	ListenAddr     string
+	DockerHost     string
+	ResyncInterval time.Duration
+	RequestExpiry  time.Duration
+}
+
+// FromEnv reads the settings through getenv, applying the defaults.
+// REQUEST_EXPIRY_DAYS (default 7) becomes RequestExpiry; 0 means never.
+// ADMIN_EMAILS is required: without an admin nobody could open the panel.
+func FromEnv(getenv func(string) string) (Config, error) {
+	c := Config{
+		UserHeader:     or(getenv("USER_HEADER"), "X-Forwarded-User"),
+		Admins:         splitList(getenv("ADMIN_EMAILS")),
+		MiddlewareName: or(getenv("MIDDLEWARE_NAME"), "traefik-authz"),
+		DBPath:         or(getenv("DB_PATH"), "/data/authz.db"),
+		ListenAddr:     or(getenv("LISTEN_ADDR"), DefaultListenAddr),
+		DockerHost:     or(getenv("DOCKER_HOST"), "unix:///var/run/docker.sock"),
+		ResyncInterval: 5 * time.Minute,
+		RequestExpiry:  7 * 24 * time.Hour,
+	}
+	if len(c.Admins) == 0 {
+		return Config{}, fmt.Errorf("ADMIN_EMAILS is empty: list at least one admin e-mail address")
+	}
+	if v := strings.TrimSpace(getenv("RESYNC_INTERVAL")); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return Config{}, fmt.Errorf("RESYNC_INTERVAL must be a positive duration such as 5m")
+		}
+		c.ResyncInterval = d
+	}
+	if v := strings.TrimSpace(getenv("REQUEST_EXPIRY_DAYS")); v != "" {
+		days, err := strconv.Atoi(v)
+		if err != nil || days < 0 {
+			return Config{}, fmt.Errorf("REQUEST_EXPIRY_DAYS must be a whole number of days, 0 to keep requests forever")
+		}
+		c.RequestExpiry = time.Duration(days) * 24 * time.Hour
+	}
+	return c, nil
+}
+
+func or(value, fallback string) string {
+	if v := strings.TrimSpace(value); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func splitList(value string) []string {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == ' ' || r == '\t' || r == '\n'
+	})
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		out = append(out, strings.ToLower(f))
+	}
+	return out
+}

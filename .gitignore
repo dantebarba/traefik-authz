@@ -1,0 +1,9 @@
+.env
+.envrc.local
+/bin/
+/dist/
+/data/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
